@@ -25,6 +25,7 @@ build:
 publish:
   stage: PUBLISH
   script:
+    - npm config set @sarqdev:registry https://gitlab.com/api/v4/projects/72232459/packages/npm/
     - npm config set //gitlab.com/api/v4/projects/72232459/packages/npm/:_authToken ${NPM_REGISTRY_SARQ_TOKEN}
     - npm publish --access=restricted
   only:
