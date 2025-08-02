@@ -1,20 +1,20 @@
 import 'reflect-metadata';
+import { MethodMetadata, HttpMethod, RestMethodDecorator } from '../types/decorators/methods';
 
-export const METHOD_METADATA = 'METHOD_METADATA';
+export const METHOD_METADATA = Symbol('METHOD_METADATA');
 
-export interface MethodMetadata {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
-  path: string;
-}
-
-function createMethodDecorator(method: MethodMetadata['method']) {
+function createMethodDecorator(method: HttpMethod): RestMethodDecorator {
   return (path: string): MethodDecorator => {
-    return (target, propertyKey) => {
+    return (
+      target: Object,
+      propertyKey: string | symbol,
+      descriptor: PropertyDescriptor
+    ) => {
       Reflect.defineMetadata(
         METHOD_METADATA,
         { method, path },
         target,
-        propertyKey,
+        propertyKey
       );
     };
   };

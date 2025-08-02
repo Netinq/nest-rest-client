@@ -69,7 +69,7 @@ export function createNestRestClient<T extends object>(
   async function doRequest(
     axiosConfig: any,
     returnTypeMetadata: ReturnMetadata | undefined = undefined,
-    retry = false,
+    retry = true,
   ): Promise<any> {
     axiosConfig = await populateAxiosConfig({
       axiosConfig,
