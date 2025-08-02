@@ -1,0 +1,32 @@
+image: node:24
+
+stages:
+  - BUILD
+  - PUBLISH
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - node_modules/
+
+before_script:
+  - npm ci
+
+build:
+  stage: BUILD
+  script:
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+  only:
+    - main
+
+publish:
+  stage: PUBLISH
+  script:
+    - npm publish --access=restricted
+  only:
+    - main
+  dependencies:
+    - build
