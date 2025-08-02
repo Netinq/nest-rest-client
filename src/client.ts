@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import {RestAuth} from './interfaces/auth.interface';
 import {REST_CLIENT_CONTENT_TYPE, REST_CLIENT_METADATA, ReturnMetadata, RETURNS_METADATA} from './decorators/rest';
-import {Logger} from '@nestjs/common';
+import {Logger, Type} from '@nestjs/common';
 import axios, {AxiosHeaders, AxiosRequestConfig, AxiosResponse, RawAxiosRequestHeaders} from 'axios';
 import {plainToInstance} from 'class-transformer';
 import {METHOD_METADATA, MethodMetadata} from './decorators/methods';
@@ -54,7 +54,7 @@ async function populateAxiosConfig({
 }
 
 export function createNestRestClient<T extends object>(
-  classRef: new (...args: any[]) => T,
+  classRef: Type<T>,
   auth?: RestAuth,
 ): T {
 
