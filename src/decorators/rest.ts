@@ -3,8 +3,8 @@ import ContentTypes from '../constants/ContentTypes';
 import {ClassTransformOptions} from 'class-transformer';
 
 export const REST_CLIENT_METADATA = 'REST_CLIENT_METADATA';
-export const RETURNS_METADATA = 'restclient:returntype';
-export const REST_CLIENT_CONTENT_TYPE = 'REST_CLIENT_CONTENT_TYPE';
+export const RETURNS_METADATA = 'REST_CLIENT:RETURN_TYPE';
+export const REST_CLIENT_CONTENT_TYPE = 'REST_CLIENT:CONTENT_TYPE';
 
 export interface RestClientOptions {
   url: () => string;
@@ -30,8 +30,8 @@ export function Returns(dto: ReturnMetadata['dto'], classTransformOptions?: Retu
   };
 }
 
-export function ContentType(type: ContentTypes): MethodDecorator {
-  return (target, propertyKey, descriptor) => {
+export function ContentType(type: ContentTypes): ClassDecorator {
+  return (target) => {
     Reflect.defineMetadata(REST_CLIENT_CONTENT_TYPE, type, target);
   };
 }
