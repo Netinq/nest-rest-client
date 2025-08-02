@@ -4,8 +4,9 @@ import {REST_CLIENT_CONTENT_TYPE, REST_CLIENT_METADATA, ReturnMetadata, RETURNS_
 import {Logger, Type} from '@nestjs/common';
 import axios, {AxiosHeaders, AxiosRequestConfig, AxiosResponse, RawAxiosRequestHeaders} from 'axios';
 import {plainToInstance} from 'class-transformer';
-import {METHOD_METADATA, MethodMetadata} from './decorators/methods';
+import {METHOD_METADATA} from './decorators/methods';
 import {PATH_PARAM_METADATA, PAYLOAD_METADATA, QUERY_PARAM_METADATA} from './decorators/requestContext';
+import {MethodMetadata} from './types/decorators/methods';
 
 export const LOGGER = new Logger('NestRestClient');
 
