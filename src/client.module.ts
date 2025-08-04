@@ -9,7 +9,6 @@ export interface RestClientOptions<T = any> {
 }
 
 export interface RestClientConfig {
-  url: string | (() => string);
   headers?: Record<string, string>;
   providers?: Record<string, any>;
 }
