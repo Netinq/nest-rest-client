@@ -5,7 +5,13 @@ export interface RestClientOptions<T = any> {
   client: Type<T>;
   deps?: Provider[];
   inject?: any[];
-  config?: Record<string, any>;
+  config?: RestClientConfig;
+}
+
+export interface RestClientConfig {
+  url: string | (() => string);
+  headers?: Record<string, string>;
+  providers?: Record<string, any>;
 }
 
 @Module({})
@@ -15,12 +21,12 @@ export class RestClientModule {
     const clientProvider: Provider = {
       provide: options.client,
       useFactory: (...injectedDeps: any[]) => {
-        return createNestRestClient(options.client, ...injectedDeps);
+        return createNestRestClient(options.client, options.config, ...injectedDeps);
       },
       inject: options.inject || [],
     };
 
-    const configProviders: Provider[] = Object.entries(options.config || {}).map(
+    const configProviders: Provider[] = Object.entries(options.config?.providers || {}).map(
       ([key, value]) => ({
         provide: key,
         useValue: value,

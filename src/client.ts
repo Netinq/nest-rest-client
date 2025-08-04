@@ -7,6 +7,7 @@ import {plainToInstance} from 'class-transformer';
 import {METHOD_METADATA} from './decorators/methods';
 import {PATH_PARAM_METADATA, PAYLOAD_METADATA, QUERY_PARAM_METADATA} from './decorators/requestContext';
 import {MethodMetadata} from './types/decorators/methods';
+import {RestClientConfig, RestClientOptions} from './client.module';
 
 export const LOGGER = new Logger('NestRestClient');
 
@@ -21,15 +22,21 @@ function replacePathVariables(path: string, variables: Record<string, any>) {
 
 async function populateAxiosConfig({
   axiosConfig,
+  config,
   auth,
   classRef,
 }: {
   axiosConfig: AxiosRequestConfig;
+  config?: RestClientConfig;
   auth?: RestAuth;
   classRef: new (...args: any[]) => any;
 }): Promise<AxiosRequestConfig> {
 
   const headers = { ...(axiosConfig.headers || {}) };
+
+  if (config?.headers) {
+    Object.assign(headers, config.headers);
+  }
 
   if (auth) {
     const token = await auth.getToken();
@@ -56,6 +63,7 @@ async function populateAxiosConfig({
 
 export function createNestRestClient<T extends object>(
   classRef: Type<T>,
+  config?: RestClientConfig,
   auth?: RestAuth,
 ): T {
 
@@ -74,6 +82,7 @@ export function createNestRestClient<T extends object>(
   ): Promise<any> {
     axiosConfig = await populateAxiosConfig({
       axiosConfig,
+      config,
       auth,
       classRef,
     });
