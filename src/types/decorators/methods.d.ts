@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
 export interface MethodMetadata {
   method: HttpMethod;
@@ -19,3 +19,4 @@ export declare const Get: RestMethodDecorator;
 export declare const Post: RestMethodDecorator;
 export declare const Put: RestMethodDecorator;
 export declare const Delete: RestMethodDecorator;
+export declare const Patch: RestMethodDecorator;
