@@ -184,10 +184,11 @@ export function createNestRestClient<T extends object>(
           url
         }
 
+        axiosConfig.params = {
+          ...queryParamMeta,
+        };
+
         if (methodMeta.method.toUpperCase() === 'GET') {
-          axiosConfig.params = {
-            ...queryParamMeta,
-          };
           if (payload) {
             LOGGER.warn('GET request with payload, using as query parameters instead');
             axiosConfig.params = {
