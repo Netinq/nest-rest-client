@@ -89,10 +89,13 @@ export function createNestRestClient<T extends object>(
 
     try {
       const response: AxiosResponse = await axios(axiosConfig);
+      const data = typeof response.data === 'string'
+        ? JSON.parse(response.data)
+        : response.data;
       if (returnTypeMetadata) {
-        return plainToInstance(returnTypeMetadata.dto, response.data, returnTypeMetadata.classTransformOptions);
+        return plainToInstance(returnTypeMetadata.dto, data, returnTypeMetadata.classTransformOptions);
       }
-      return response.data;
+      return data;
     } catch (error: any) {
       if (retry) {
         if (error.response?.status === 401 && auth?.refreshToken) {
