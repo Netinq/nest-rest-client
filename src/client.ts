@@ -2,12 +2,11 @@ import 'reflect-metadata';
 import {RestAuth} from './interfaces/auth.interface';
 import {REST_CLIENT_CONTENT_TYPE, REST_CLIENT_METADATA, ReturnMetadata, RETURNS_METADATA} from './decorators/rest';
 import {Logger, Type} from '@nestjs/common';
-import axios, {AxiosHeaders, AxiosRequestConfig, AxiosResponse, RawAxiosRequestHeaders} from 'axios';
+import axios, {AxiosRequestConfig, AxiosResponse} from 'axios';
 import {plainToInstance} from 'class-transformer';
-import {METHOD_METADATA} from './decorators/methods';
+import {METHOD_METADATA, MethodMetadata} from './decorators/methods';
 import {PATH_PARAM_METADATA, PAYLOAD_METADATA, QUERY_PARAM_METADATA} from './decorators/requestContext';
-import {MethodMetadata} from './types/decorators/methods';
-import {RestClientConfig, RestClientOptions} from './client.module';
+import {RestClientConfig} from './client.module';
 
 export const LOGGER = new Logger('NestRestClient');
 
@@ -18,6 +17,31 @@ function replacePathVariables(path: string, variables: Record<string, any>) {
     }
     return encodeURIComponent(String(variables[key]));
   });
+}
+
+function getAllRestMethods(classRef: any) {
+  const methods: string[] = [];
+  let proto = classRef.prototype;
+
+  while (proto && proto !== Object.prototype) {
+    const keys = Object.getOwnPropertyNames(proto);
+
+    for (const key of keys) {
+      if (key === 'constructor') continue;
+      const descriptor = Object.getOwnPropertyDescriptor(proto, key);
+      if (descriptor && typeof descriptor.value === 'function') {
+        const methodMeta = Reflect.getMetadata(METHOD_METADATA, proto, key);
+        if (methodMeta) {
+          if (!methods.includes(key)) {
+            methods.push(key);
+          }
+        }
+      }
+    }
+    proto = Object.getPrototypeOf(proto);
+  }
+
+  return methods;
 }
 
 async function populateAxiosConfig({
@@ -45,7 +69,7 @@ async function populateAxiosConfig({
     }
     headers['Authorization'] = `Bearer ${token}`;
   }
-
+  LOGGER.debug(headers);
   const metaContentType = Reflect.getMetadata(REST_CLIENT_CONTENT_TYPE, classRef.prototype);
 
   if (!metaContentType) {
@@ -67,6 +91,8 @@ export function createNestRestClient<T extends object>(
   auth?: RestAuth,
 ): T {
 
+  LOGGER.debug('Creating nest client', auth);
+
   const meta = Reflect.getMetadata(REST_CLIENT_METADATA, classRef);
 
   if (!meta) {
@@ -74,6 +100,17 @@ export function createNestRestClient<T extends object>(
   }
 
   const baseUrl = typeof meta.url === 'function' ? meta.url() : meta.url;
+
+  LOGGER.log(`Creating REST client for ${classRef.name} (${baseUrl})`);
+  const methodNames = getAllRestMethods(classRef);
+
+  for (const methodName of methodNames) {
+    const methodMeta = Reflect.getMetadata(METHOD_METADATA, classRef.prototype, methodName);
+    const returnTypeMeta = Reflect.getMetadata(RETURNS_METADATA, classRef.prototype, methodName);
+    const pathMeta = methodMeta?.path;
+
+    LOGGER.log(`Mapped {${baseUrl}${pathMeta}, ${methodMeta.method.toUpperCase()}} (returns ${returnTypeMeta?.dto?.name || 'void'})`)
+  }
 
   async function doRequest(
     axiosConfig: any,
@@ -86,8 +123,9 @@ export function createNestRestClient<T extends object>(
       auth,
       classRef,
     });
-
     try {
+      LOGGER.debug(`Executing REST request: ${axiosConfig.method.toUpperCase()} ${axiosConfig.url}`);
+      LOGGER.debug("Axios Config:", axiosConfig);
       const response: AxiosResponse = await axios(axiosConfig);
       const data = typeof response.data === 'string'
         ? JSON.parse(response.data)
