@@ -1,11 +1,13 @@
-import {DynamicModule, Module, Provider, Type} from '@nestjs/common';
-import {createNestRestClient} from './client';
+import {DynamicModule, Global, Module, Provider, Type} from '@nestjs/common';
+import {RestAuth, RestAuthProvider} from './interfaces/auth.interface';
+import {getAuthProviderToken, RestClientFactory} from './factory/client.factory';
 
 export interface RestClientOptions<T = any> {
   client: Type<T>;
-  deps?: Provider[];
-  inject?: any[];
   config?: RestClientConfig;
+  authProvider?: Type<RestAuth>;
+  useAuthFactory?: (...args: any[]) => Promise<RestAuth> | RestAuth;
+  inject?: any[];
 }
 
 export interface RestClientConfig {
@@ -13,29 +15,68 @@ export interface RestClientConfig {
   providers?: Record<string, any>;
 }
 
+export interface RestClientAsyncOptions {
+  imports?: any[];
+  useFactory: (...args: any[]) => Promise<RestClientOptions[]> | RestClientOptions[];
+  inject?: any[];
+  globalAuthProvider?: RestAuthProvider;
+  authProviderInject?: Provider[];
+}
+
+@Global()
 @Module({})
 export class RestClientModule {
-  static forRoot<T extends object>(options: RestClientOptions<T>): DynamicModule {
+  static forRootAsync(options: RestClientAsyncOptions): DynamicModule {
+    const clientsProvider: Provider = {
+      provide: 'REST_CLIENTS',
+      useFactory: (...args: any[]) => RestClientFactory.createProvider(options, ...args),
+      inject: [
+        'REST_CLIENTS_OPTIONS',
+        getAuthProviderToken(options.globalAuthProvider),
+        ...(options.authProviderInject || [])
+      ].filter(Boolean),
+    };
 
-    const clientProvider: Provider = {
-      provide: options.client,
-      useFactory: (...injectedDeps: any[]) => {
-        return createNestRestClient(options.client, options.config, ...injectedDeps);
-      },
+    // Provider des options
+    const asyncOptionsProvider: Provider = {
+      provide: 'REST_CLIENTS_OPTIONS',
+      useFactory: options.useFactory,
       inject: options.inject || [],
     };
 
-    const configProviders: Provider[] = Object.entries(options.config?.providers || {}).map(
-      ([key, value]) => ({
-        provide: key,
-        useValue: value,
-      }),
-    );
+    const providers: Provider[] = [
+      asyncOptionsProvider,
+      clientsProvider,
+      ...(options.globalAuthProvider ? [options.globalAuthProvider] : []),
+      ...(options.authProviderInject || []),
+    ];
+
+    if (options.globalAuthProvider) {
+      providers.push(options.globalAuthProvider);
+    }
 
     return {
       module: RestClientModule,
-      providers: [...(options.deps || []), ...configProviders, clientProvider],
-      exports: [options.client],
+      imports: options.imports || [],
+      providers,
+      exports: [clientsProvider, options.globalAuthProvider].filter(Boolean) as Provider[],
+      global: true,
+    };
+  }
+
+  static forFeature(clients: Type<any>[]): DynamicModule {
+    const providers = clients.map(clientClass => ({
+      provide: clientClass,
+      useFactory: (allClients: Record<string, any>) => {
+        return allClients[clientClass.name];
+      },
+      inject: ['REST_CLIENTS'],
+    }));
+
+    return {
+      module: RestClientModule,
+      providers,
+      exports: providers.map(p => p.provide),
     };
   }
 }
