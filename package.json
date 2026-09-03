@@ -10,7 +10,7 @@
     "yalc": "yalc publish"
   },
   "publishConfig": {
-    "registry": "https://gitlab.com/api/v4/projects/72232459/packages/npm/"
+    "registry": "http://npm-registry.prd.internet.sarqcloud.fr"
   },
   "dependencies": {
     "reflect-metadata": "^0.2.2"

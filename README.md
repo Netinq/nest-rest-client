@@ -34,11 +34,13 @@ npm install nest-rest-client
 
 ## Quick start
 
-Create a REST client by extending the `RestClient` decorator and using the `@Get`, `@Post`, etc. decorators to define your endpoints.
+Create a REST client with the `@RestClient` decorator, then declare each endpoint as a
+**property** typed with `Endpoint<Args, Result>`. No method body is needed: the whole
+client is generated at runtime.
+
 ```typescript
 /* exemple.client.ts */
-import {RestClient} from 'nest-rest-client/dist/decorators/rest';
-import ContentTypes from 'nest-rest-client/dist/constants/ContentTypes';
+import {RestClient, ContentType, ContentTypes, Get, Post, Endpoint} from 'nest-rest-client';
 
 @RestClient({
   url: "https://api.example.com",
@@ -46,15 +48,33 @@ import ContentTypes from 'nest-rest-client/dist/constants/ContentTypes';
 @ContentType(ContentTypes.JSON)
 export class ApiRestClient {
   @Get('/v1/foo')
-  async getFoo(): Promise<null> {
-    return null;
-  }
+  getFoo!: Endpoint<[], Foo[]>;
+
+  @Get('/v1/foo/:id')
+  getFooById!: Endpoint<[id: string], Foo>;
+
+  @Post('/v1/foo')
+  createFoo!: Endpoint<[body: CreateFooDto], Foo>;
+}
+```
+
+Arguments are bound **by position**: the path variables first, in their order of
+appearance in the path, then — optionally — the payload (request body, or query
+parameters for a `GET`).
+
+The method syntax is still supported when you need explicit binding with `@PathParam`,
+`@QueryParam` or `@Payload`. TypeScript then requires a body, which is never executed:
+
+```typescript
+@Get('/v1/foo/:id')
+getFooById(@PathParam('id') id: string, @QueryParam('full') full?: boolean): Promise<Foo> {
+  throw new Error('Not implemented - replaced by the proxy.');
 }
 ```
 
 Then, you can import the `RestClientModule` in your main application module and configure it with your REST client class.
 ```typescript
-import { RestClientModule } from 'nest-rest-client/dist/client.module';
+import { RestClientModule } from 'nest-rest-client';
 @Module({
   imports: [
     RestClientModule.forRoot({

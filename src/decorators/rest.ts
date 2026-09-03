@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import ContentTypes from '../constants/ContentTypes';
 import {ClassConstructor, ClassTransformOptions} from 'class-transformer';
+import {EndpointDecorator} from '../types/endpoint';
 
 export const REST_CLIENT_METADATA = 'REST_CLIENT_METADATA';
 export const RETURNS_METADATA = 'REST_CLIENT:RETURN_TYPE';
@@ -11,7 +12,7 @@ const defaultClassTransformOptions: ClassTransformOptions = {
 };
 
 export interface RestClientOptions {
-  url: () => string;
+  url: string | (() => string);
 }
 
 export interface ReturnMetadata {
@@ -25,7 +26,7 @@ export function RestClient(options: RestClientOptions): ClassDecorator {
   };
 }
 
-export function Returns(dto: ReturnMetadata['dto'], classTransformOptions: ReturnMetadata['classTransformOptions'] = defaultClassTransformOptions): MethodDecorator {
+export function Returns(dto: ReturnMetadata['dto'], classTransformOptions: ReturnMetadata['classTransformOptions'] = defaultClassTransformOptions): EndpointDecorator {
   return (target, propertyKey, descriptor) => {
     Reflect.defineMetadata(RETURNS_METADATA, {
       dto,
@@ -35,7 +36,7 @@ export function Returns(dto: ReturnMetadata['dto'], classTransformOptions: Retur
 }
 
 
-export function ClassTransformOptions(classTransformOptions: ClassTransformOptions): MethodDecorator {
+export function ClassTransformOptions(classTransformOptions: ClassTransformOptions): EndpointDecorator {
   return (target, propertyKey, descriptor) => {
     Reflect.defineMetadata(RETURNS_METADATA, classTransformOptions, target, propertyKey);
   };

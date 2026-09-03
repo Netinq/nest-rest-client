@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { RestAuth } from '../../src/interfaces/auth.interface';
 import { createNestRestClient } from '../../src/client';
-import { Get } from '../../src/types/decorators/methods';
+import { Get } from '../../src/decorators/methods';
 import {PathParam} from '../../src/decorators/requestContext';
 import {RestClient} from '../../src/decorators/rest';
 
@@ -32,7 +32,7 @@ describe('TestClient REST client', () => {
   it('should call axios with correct URL and Authorization header', async () => {
     axiosMock.mockResolvedValueOnce({ data: { value: 42 } });
 
-    const client = createNestRestClient(TestClient, authMock);
+    const client = createNestRestClient(TestClient, undefined, authMock);
     const result = await client.getData(1);
 
     expect(authMock.getToken).toHaveBeenCalledTimes(1);
@@ -53,7 +53,7 @@ describe('TestClient REST client', () => {
     axiosMock.mockRejectedValueOnce({ response: { status: 401 } });
     axiosMock.mockResolvedValueOnce({ data: { value: 123 } });
 
-    const client = createNestRestClient(TestClient, authMock);
+    const client = createNestRestClient(TestClient, undefined, authMock);
     const result = await client.getData(2);
 
     expect(authMock.getToken).toHaveBeenCalledTimes(2); // une fois avant 1er call, une fois avant retry

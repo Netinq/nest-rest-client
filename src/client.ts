@@ -4,7 +4,7 @@ import {REST_CLIENT_CONTENT_TYPE, REST_CLIENT_METADATA, ReturnMetadata, RETURNS_
 import {Logger, Type} from '@nestjs/common';
 import axios, {AxiosRequestConfig, AxiosResponse} from 'axios';
 import {plainToInstance} from 'class-transformer';
-import {METHOD_METADATA, MethodMetadata} from './decorators/methods';
+import {ENDPOINTS_METADATA, METHOD_METADATA, MethodMetadata} from './decorators/methods';
 import {PATH_PARAM_METADATA, PAYLOAD_METADATA, QUERY_PARAM_METADATA} from './decorators/requestContext';
 import {RestClientConfig} from './client.module';
 
@@ -19,29 +19,15 @@ function replacePathVariables(path: string, variables: Record<string, any>) {
   });
 }
 
-function getAllRestMethods(classRef: any) {
-  const methods: string[] = [];
-  let proto = classRef.prototype;
+function getAllRestMethods(classRef: any): string[] {
+  const endpoints: (string | symbol)[] =
+    Reflect.getMetadata(ENDPOINTS_METADATA, classRef.prototype) ?? [];
 
-  while (proto && proto !== Object.prototype) {
-    const keys = Object.getOwnPropertyNames(proto);
+  return endpoints.filter((key): key is string => typeof key === 'string');
+}
 
-    for (const key of keys) {
-      if (key === 'constructor') continue;
-      const descriptor = Object.getOwnPropertyDescriptor(proto, key);
-      if (descriptor && typeof descriptor.value === 'function') {
-        const methodMeta = Reflect.getMetadata(METHOD_METADATA, proto, key);
-        if (methodMeta) {
-          if (!methods.includes(key)) {
-            methods.push(key);
-          }
-        }
-      }
-    }
-    proto = Object.getPrototypeOf(proto);
-  }
-
-  return methods;
+function extractPathPlaceholders(path: string): string[] {
+  return (path.match(/:([a-zA-Z0-9_]+)/g) || []).map((match) => match.slice(1));
 }
 
 async function populateAxiosConfig({
@@ -70,7 +56,7 @@ async function populateAxiosConfig({
     headers['Authorization'] = `Bearer ${token}`;
   }
   LOGGER.debug(headers);
-  const metaContentType = Reflect.getMetadata(REST_CLIENT_CONTENT_TYPE, classRef.prototype);
+  const metaContentType = Reflect.getMetadata(REST_CLIENT_CONTENT_TYPE, classRef);
 
   if (!metaContentType) {
     LOGGER.warn('No content type defined for REST client, defaulting to application/json');
@@ -159,7 +145,9 @@ export function createNestRestClient<T extends object>(
   >();
 
   return new Proxy({} as T, {
-    get(_, prop: string) {
+    get(_, prop: string | symbol) {
+      if (typeof prop !== 'string') return undefined;
+
       if (!methodMetadataCache.has(prop)) {
         const methodMeta: MethodMetadata = Reflect.getMetadata(
           METHOD_METADATA,
@@ -203,21 +191,42 @@ export function createNestRestClient<T extends object>(
         payloadIndex,
       } = methodMetadataCache.get(prop)!;
 
-      const endpoint = classRef.prototype[prop];
-
-      if (!endpoint) return undefined;
       if (!methodMeta) return undefined;
 
       return async (...args: any[]) => {
         const pathVariables: Record<string, any> = {};
-        for (const { name, index } of pathParamMeta) {
-          if (args[index] === undefined) {
-            throw new Error(`Missing path variable: ${name}`);
+        const placeholders = extractPathPlaceholders(methodMeta.path);
+
+        // Endpoint déclaré sans corps (`getUser!: Endpoint<[id: string], User>`) :
+        // aucun décorateur de paramètre n'est possible, les arguments sont donc
+        // associés aux variables de chemin dans leur ordre d'apparition, le
+        // suivant servant de payload.
+        const positional =
+          pathParamMeta.length === 0 &&
+          queryParamMeta.length === 0 &&
+          payloadIndex === undefined;
+
+        if (positional) {
+          placeholders.forEach((name, index) => {
+            if (args[index] === undefined) {
+              throw new Error(`Missing path variable: ${name}`);
+            }
+            pathVariables[name] = args[index];
+          });
+        } else {
+          for (const { name, index } of pathParamMeta) {
+            if (args[index] === undefined) {
+              throw new Error(`Missing path variable: ${name}`);
+            }
+            pathVariables[name] = args[index];
           }
-          pathVariables[name] = args[index];
         }
 
-        const payload = payloadIndex !== undefined ? args[payloadIndex] : undefined;
+        const payload = positional
+          ? args[placeholders.length]
+          : payloadIndex !== undefined
+            ? args[payloadIndex]
+            : undefined;
         const url = baseUrl + replacePathVariables(methodMeta.path, pathVariables);
 
         const axiosConfig: AxiosRequestConfig = {
@@ -225,9 +234,13 @@ export function createNestRestClient<T extends object>(
           url
         }
 
-        axiosConfig.params = {
-          ...queryParamMeta,
-        };
+        for (const { name, index } of queryParamMeta) {
+          if (args[index] === undefined) continue;
+          axiosConfig.params = {
+            ...(axiosConfig.params || {}),
+            [name]: args[index],
+          };
+        }
 
         if (methodMeta.method.toUpperCase() === 'GET') {
           if (payload) {
