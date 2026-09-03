@@ -1,34 +1,3 @@
-image: node:24
-
-stages:
-  - BUILD
-  - PUBLISH
-
-cache:
-  key: ${CI_COMMIT_REF_SLUG}
-  paths:
-    - node_modules/
-
-before_script:
-  - npm ci
-
-build:
-  stage: BUILD
-  script:
-    - npm run build
-  artifacts:
-    paths:
-      - dist/
-  only:
-    - main
-
-publish:
-  stage: PUBLISH
-  script:
-    - npm config set @sarqdev:registry https://gitlab.com/api/v4/projects/72232459/packages/npm/
-    - npm config set //gitlab.com/api/v4/projects/72232459/packages/npm/:_authToken ${NPM_REGISTRY_SARQ_TOKEN}
-    - npm publish --access=restricted
-  only:
-    - main
-  dependencies:
-    - build
+include:
+  - project: sarqdev/catalogue-ci
+    file: .npm-librairies.gitlab-ci.yml
