@@ -1,4 +1,4 @@
-import {DynamicModule, Global, Module, Provider, Type} from '@nestjs/common';
+import {DynamicModule, Module, Provider, Type} from '@nestjs/common';
 import {RestAuth, RestAuthProvider} from './interfaces/auth.interface';
 import {getAuthProviderToken, RestClientFactory} from './factory/client.factory';
 
@@ -23,9 +23,16 @@ export interface RestClientAsyncOptions {
   authProviderInject?: Provider[];
 }
 
-@Global()
 @Module({})
 export class RestClientModule {
+  static forRoot(clients: RestClientOptions[] | RestClientOptions): DynamicModule {
+    const normalizedClients = Array.isArray(clients) ? clients : [clients];
+
+    return RestClientModule.forRootAsync({
+      useFactory: () => normalizedClients,
+    });
+  }
+
   static forRootAsync(options: RestClientAsyncOptions): DynamicModule {
     const clientsProvider: Provider = {
       provide: 'REST_CLIENTS',
@@ -60,7 +67,6 @@ export class RestClientModule {
       imports: options.imports || [],
       providers,
       exports: [clientsProvider, options.globalAuthProvider].filter(Boolean) as Provider[],
-      global: true,
     };
   }
 
