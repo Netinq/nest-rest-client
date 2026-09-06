@@ -1,6 +1,6 @@
 {
   "name": "@sarqdev/nest-rest-client",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "description": "A Nest module to create insane REST Client.",
