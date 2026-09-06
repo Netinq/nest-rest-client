@@ -64,6 +64,7 @@ export class RestClientModule {
 
     return {
       module: RestClientModule,
+      global: true,
       imports: options.imports || [],
       providers,
       exports: [clientsProvider, options.globalAuthProvider].filter(Boolean) as Provider[],
