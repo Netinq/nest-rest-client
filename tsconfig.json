@@ -1,15 +1,16 @@
 {
   "compilerOptions": {
+    "rootDir": "./src",
     "outDir": "./dist",
     "declaration": true,
-    "module": "CommonJS",
+    "module": "nodenext",
     "target": "ES2017",
-    "moduleResolution": "Node",
+    "moduleResolution": "nodenext",
     "esModuleInterop": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "strict": true,
-    "types": ["jest", "node"],
+    "types": ["jest", "node"]
   },
   "include": ["src/**/*"],
 }

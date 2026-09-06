@@ -3,6 +3,8 @@
   "version": "1.6.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "description": "A Nest module to create insane REST Client.",
+  "author": "Quentin SAR",
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",

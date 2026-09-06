@@ -1,138 +1,491 @@
-<p align="center">
-  <a href="http://nestjs.com"><img alt="Nest Logo" src="https://nestjs.com/img/logo-small.svg" width="120"></a>
-</p>
+# nest-rest-client
 
-<h1 align="center">
-  nest-rest-client
-</h1>
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/nest-rest-client"><img alt="NPM version" src="https://img.shields.
-io/npm/v/nest-rest-client.
-svg"></a>
-  <a href="https://www.npmjs.com/package/nest-rest-client"><img alt="NPM downloads" src="https://img.shields.io/npm/dw/nest-rest-client.svg"></a>
-</p>
-
-<p align="center">
-  A <a href="https://github.com/nestjs/nest">Nest</a> module to create insane REST Client.
-</p>
-
-**Table of Contents**
-
-- [Installation](#installation)
-- [Quick start](#quick-start)
-- [Reference](#reference)
-  - [Decorators](#decorators)
-    - [@RestClient](#restclient)
-    - [@ContentType](#contenttype)
+A NestJS utility to declare REST clients as typed classes and call them like proxied methods.
 
 ## Installation
 
 ```bash
-npm install nest-rest-client
+npm install @sarqdev/nest-rest-client
 ```
 
 ## Quick start
 
-Create a REST client with the `@RestClient` decorator, then declare each endpoint as a
-**property** typed with `Endpoint<Args, Result>`. No method body is needed: the whole
-client is generated at runtime.
+Create a client class with `@RestClient`, decorate it with `@ContentType` if needed, and declare each endpoint as a typed property.
 
-```typescript
-/* exemple.client.ts */
-import {RestClient, ContentType, ContentTypes, Get, Post, Endpoint} from 'nest-rest-client';
+```ts
+import {
+ RestClient,
+ ContentType,
+ ContentTypes,
+ Get,
+ Post,
+ Endpoint,
+} from '@sarqdev/nest-rest-client';
+
+interface Foo {
+ id: string;
+ name: string;
+}
+
+interface CreateFooDto {
+ name: string;
+}
 
 @RestClient({
-  url: "https://api.example.com",
+ url: 'https://api.example.com',
+ headers: {
+   'X-App': 'demo',
+ },
 })
 @ContentType(ContentTypes.JSON)
 export class ApiRestClient {
-  @Get('/v1/foo')
-  getFoo!: Endpoint<[], Foo[]>;
+ @Get('/v1/foo')
+ getFoo!: Endpoint<[], Foo[]>;
 
-  @Get('/v1/foo/:id')
-  getFooById!: Endpoint<[id: string], Foo>;
+ @Get('/v1/foo/:id')
+ getFooById!: Endpoint<[id: string], Foo>;
 
-  @Post('/v1/foo')
-  createFoo!: Endpoint<[body: CreateFooDto], Foo>;
+ @Post('/v1/foo')
+ createFoo!: Endpoint<[body: CreateFooDto], Foo>;
 }
 ```
 
-Arguments are bound **by position**: the path variables first, in their order of
-appearance in the path, then — optionally — the payload (request body, or query
-parameters for a `GET`).
+Then register it in your module:
 
-The method syntax is still supported when you need explicit binding with `@PathParam`,
-`@QueryParam` or `@Payload`. TypeScript then requires a body, which is never executed:
+```ts
+import { Module } from '@nestjs/common';
+import { RestClientModule } from '@sarqdev/nest-rest-client';
+import { ApiRestClient } from './api-rest.client';
 
-```typescript
-@Get('/v1/foo/:id')
-getFooById(@PathParam('id') id: string, @QueryParam('full') full?: boolean): Promise<Foo> {
-  throw new Error('Not implemented - replaced by the proxy.');
-}
-```
-
-Then, you can import the `RestClientModule` in your main application module and configure it with your REST client class.
-```typescript
-import { RestClientModule } from 'nest-rest-client';
 @Module({
-  imports: [
-    RestClientModule.forRoot({
-      client: ApiRestClient,
-      deps: [],
-      inject: [],
-      config: {},
-    }),
-  ],
+ imports: [
+   RestClientModule.forRootAsync({
+     useFactory: () => [
+       {
+         client: ApiRestClient,
+         config: {
+           headers: {
+             'X-Global': 'app',
+           },
+         },
+       },
+     ],
+   }),
+   RestClientModule.forFeature([ApiRestClient]),
+ ],
 })
 export class AppModule {}
 ```
 
-Next, you can inject your REST client into any service or controller where you need to use it.
-```typescript
-@Module({
-  imports: [
-  ],
-  controllers: [],
-  providers: [ApiRestClient],
-})
-export class BarModule {}
-```
+You can inject it later:
 
-And finally, you can use the REST client in your service or controller.
-```typescript
+```ts
+import { Injectable } from '@nestjs/common';
+
 @Injectable()
-export class BarService {
+export class FooService {
+ constructor(private readonly client: ApiRestClient) {}
 
-  constructor(private readonly client: MyRestClient) { }
-  
-  async getFoo(): Promise<null> {
-    this.LOGGER.log('Calling getFoo()');
-    return this.client.getFoo();
-  }
+ async list() {
+   return this.client.getFoo();
+ }
+
+ async create(data: { name: string }) {
+   return this.client.createFoo(data);
+ }
 }
 ```
 
-## Reference
-### Decorators
-#### @RestClient
-The `@RestClient` decorator is used to define a REST client class. It takes an options object that can include the base URL for the API.
+## How arguments are bound
+
+Arguments are matched by position.
+
+- path params first
+- then query params or payload
+- for `GET`, payload is converted to query parameters if present
+- for non-GET, payload becomes `axiosConfig.data`
+
+### Example with path + payload
+
+```ts
+@RestClient({ url: 'https://api.example.com' })
+export class UserClient {
+ @Get('/users/:id')
+ getUser!: Endpoint<[id: string], User>;
+
+ @Post('/users')
+ createUser!: Endpoint<[body: CreateUserDto], User>;
+}
+```
+
+Usage:
+
+```ts
+await client.getUser('123');
+await client.createUser({ name: 'Alice' });
+```
+
+### Example with query params
+
+```ts
+@RestClient({ url: 'https://api.example.com' })
+export class SearchClient {
+ @Get('/search')
+ search!: Endpoint<[q: string, page: number], SearchResult>;
+}
+```
+
+This is equivalent to:
+
+```ts
+GET https://api.example.com/search?q=nestjs&page=2
+```
+
+Usage:
+
+```ts
+await client.search('nestjs', 2);
+```
+
+### Example with body on GET
+
+```ts
+@RestClient({ url: 'https://api.example.com' })
+export class SearchClient {
+ @Get('/search')
+ searchWithBody!: Endpoint<[filters: Record<string, any>], SearchResult>;
+}
+```
+
+Usage:
+
+```ts
+await client.searchWithBody({ category: 'books', page: 1 });
+```
+
+This library turns the GET payload into query params automatically.
+
+## Decorators
+
+### @RestClient
+
+```ts
+@RestClient({
+ url: 'https://api.example.com',
+ headers: {
+   'X-App': 'demo',
+ },
+ contentType: ContentTypes.JSON,
+})
+```
+
+Properties:
 
 | Property | Type | Description |
-| -------- | ---- | ----------- |
-| url | `string` | The base URL for the REST API. |
-#### @ContentType
-The `@ContentType` decorator is used to specify the content type for the REST client. It takes a content type string as an argument.
+| --- | --- | --- |
+| url | `string | (() => string)` | Base URL of the API |
+| headers | `Record<string, string>` | Default headers for all requests of this client |
+| contentType | `ContentTypes | string` | Default `Content-Type` for the client, overridable per request |
 
-| Property | Type         | Description |
-| -------- |--------------| ----------- |
-| contentType | `ContentType` | The content type for the REST client. |
+### @ContentType
 
-#### @Returns
-The `@Returns` decorator is used to specify the expected return type of a REST client method. It takes a type argument that represents the expected return type.
-Using `class-transformer` is recommended to ensure that the response is properly transformed into the expected type.
-Check the [NestJS Serialization](https://docs.nestjs.com/techniques/serialization) documentation for more details.
+```ts
+@ContentType(ContentTypes.JSON)
+```
 
-| Property | Type         | Description |
-| -------- |--------------| ----------- |
-| type     | `Type<T>`    | The expected return type of the REST client method. |
+This sets the default `Content-Type` header for the client. You can still override it on a specific request by passing `headers: { 'Content-Type': '...' }` or `contentType: '...'` in the request config object.
+
+### @Get / @Post / @Put / @Delete / @Patch
+
+Define the HTTP method and route.
+
+```ts
+@Get('/users/:id')
+```
+
+### @Returns
+
+Type the result and optionally configure `class-transformer`.
+
+```ts
+@Get('/users/:id')
+getUser!: Endpoint<[id: string], User>;
+```
+
+## Headers
+
+You can set headers at three levels.
+
+### 1. Client level
+
+```ts
+@RestClient({
+ url: 'https://api.example.com',
+ headers: {
+   'X-Client': 'portal',
+ },
+ contentType: ContentTypes.JSON,
+})
+export class ApiClient {
+ @Get('/status')
+ getStatus!: Endpoint<[], { ok: boolean }>;
+}
+```
+
+`contentType` and `@ContentType(...)` both set the default `Content-Type` for the class, but a request can override it.
+
+### 2. Module level
+
+```ts
+RestClientModule.forRootAsync({
+ useFactory: () => [
+   {
+     client: ApiClient,
+     config: {
+       headers: {
+         'X-Global': 'shared',
+       },
+     },
+   },
+ ],
+});
+```
+
+### 3. Request level
+
+```ts
+await client.getStatus({
+ headers: {
+   'X-Trace-Id': 'abc-123',
+   'Content-Type': ContentTypes.TEXT_PLAIN,
+ },
+});
+```
+
+Or with the convenience field:
+
+```ts
+await client.getStatus({
+ contentType: ContentTypes.TEXT_PLAIN,
+ headers: {
+   'X-Trace-Id': 'abc-123',
+ },
+});
+```
+
+Priority is:
+
+1. request-level `headers['Content-Type']` / `contentType`
+2. module-level config.headers
+3. client-level `@RestClient({ headers, contentType })` / `@ContentType(...)`
+4. auth headers (`Authorization`)
+
+### Example with auth
+
+```ts
+export class MyAuth implements RestAuth {
+ async getToken(): Promise<string> {
+   return 'token';
+ }
+
+ async refreshToken(): Promise<void> {
+   // refresh
+ }
+}
+```
+
+```ts
+RestClientModule.forRootAsync({
+ authProviderInject: [MyAuth],
+ useFactory: () => [
+   {
+     client: ApiClient,
+     authProvider: MyAuth,
+     config: {
+       headers: {
+         'X-System': 'backend',
+       },
+     },
+   },
+ ],
+});
+```
+
+This automatically injects Authorization: Bearer <token>.
+
+## Request config override
+
+If you need a custom header or content type for a single call, pass an object as the last argument:
+
+```ts
+await client.getFoo({
+ headers: {
+   'X-Trace-Id': 'my-trace',
+   'Content-Type': ContentTypes.TEXT_PLAIN,
+ },
+});
+```
+
+Or with the shortcut:
+
+```ts
+await client.getFoo({
+ contentType: ContentTypes.TEXT_PLAIN,
+ headers: {
+   'X-Trace-Id': 'my-trace',
+ },
+});
+```
+
+For a call with path params + request config:
+
+```ts
+await client.getFooById('42', {
+ headers: {
+   'X-Trace-Id': 'my-trace',
+ },
+});
+```
+
+For a body request with request config:
+
+```ts
+await client.createFoo(
+ { name: 'Alice' },
+ {
+   headers: {
+     'X-Trace-Id': 'my-trace',
+   },
+ },
+);
+```
+
+You can also pass `params` in the request config:
+
+```ts
+await client.search('nestjs', {
+ params: {
+   page: 2,
+   order: 'desc',
+ },
+});
+```
+
+## Method declaration styles
+
+### Declarative style (recommended)
+
+```ts
+@RestClient({ url: 'https://api.example.com' })
+export class Client {
+ @Get('/users/:id')
+ getUser!: Endpoint<[id: string], User>;
+}
+```
+
+Use this when you want the proxy to generate the method automatically.
+
+### Decorator-based binding style
+
+```ts
+@RestClient({ url: 'https://api.example.com' })
+export class Client {
+ @Get('/users/:id')
+ getUser(
+   @PathParam('id') id: string,
+   @QueryParam('include') include?: string,
+ ): Promise<User> {
+   throw new Error('Not implemented - replaced by the proxy.');
+ }
+}
+```
+
+This style is useful when you need explicit parameter mapping.
+
+## Automatic JSON parsing
+
+JSON responses are parsed automatically when content is JSON.
+
+HTML or plain text responses are returned as raw strings.
+
+```ts
+@RestClient({ url: 'https://example.com' })
+export class HtmlClient {
+ @Get('/page')
+ getPage!: Endpoint<[], string>;
+}
+```
+
+## Full example
+
+```ts
+import {
+ RestClient,
+ ContentType,
+ ContentTypes,
+ Get,
+ Post,
+ Endpoint,
+ RestClientModule,
+} from '@sarqdev/nest-rest-client';
+
+interface User {
+ id: string;
+ name: string;
+}
+
+@RestClient({
+ url: 'https://api.example.com',
+ headers: {
+   'X-App': 'demo',
+ },
+})
+@ContentType(ContentTypes.JSON)
+export class UserClient {
+ @Get('/users')
+ listUsers!: Endpoint<[], User[]>;
+
+ @Get('/users/:id')
+ getUser!: Endpoint<[id: string], User>;
+
+ @Post('/users')
+ createUser!: Endpoint<[body: { name: string }], User>;
+}
+
+@Module({
+ imports: [
+   RestClientModule.forRootAsync({
+     useFactory: () => [
+       {
+         client: UserClient,
+         config: {
+           headers: {
+             'X-Env': 'prod',
+           },
+         },
+       },
+     ],
+   }),
+   RestClientModule.forFeature([UserClient]),
+ ],
+})
+export class AppModule {}
+```
+
+Usage:
+
+```ts
+const users = await userClient.listUsers();
+const user = await userClient.getUser('1');
+const created = await userClient.createUser(
+ { name: 'Alice' },
+ { headers: { 'X-Trace-Id': 'trace-1' } },
+);
+```
+
+## Notes
+
+- Use `Endpoint<[...args], T>` to type the arguments and return value.
+- The library automatically manages `Authorization` when an auth provider is configured.
+- `GET` payloads are converted to query params.
+- HTML or plain text bodies are not forced through `JSON.parse`.

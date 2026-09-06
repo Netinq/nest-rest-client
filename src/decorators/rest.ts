@@ -13,6 +13,8 @@ const defaultClassTransformOptions: ClassTransformOptions = {
 
 export interface RestClientOptions {
   url: string | (() => string);
+  headers?: Record<string, string>;
+  contentType?: ContentTypes | string;
 }
 
 export interface ReturnMetadata {
@@ -22,7 +24,11 @@ export interface ReturnMetadata {
 
 export function RestClient(options: RestClientOptions): ClassDecorator {
   return (target) => {
-    Reflect.defineMetadata(REST_CLIENT_METADATA, options, target);
+    Reflect.defineMetadata(REST_CLIENT_METADATA, {
+      ...options,
+      headers: options.headers || {},
+      contentType: options.contentType,
+    }, target);
   };
 }
 

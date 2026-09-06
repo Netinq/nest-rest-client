@@ -3,6 +3,7 @@ import {RestAuth} from './interfaces/auth.interface';
 import {REST_CLIENT_CONTENT_TYPE, REST_CLIENT_METADATA, ReturnMetadata, RETURNS_METADATA} from './decorators/rest';
 import {Logger, Type} from '@nestjs/common';
 import axios, {AxiosRequestConfig, AxiosResponse} from 'axios';
+import ContentTypes from './constants/ContentTypes';
 import {plainToInstance} from 'class-transformer';
 import {ENDPOINTS_METADATA, METHOD_METADATA, MethodMetadata} from './decorators/methods';
 import {PATH_PARAM_METADATA, PAYLOAD_METADATA, QUERY_PARAM_METADATA} from './decorators/requestContext';
@@ -30,6 +31,28 @@ function extractPathPlaceholders(path: string): string[] {
   return (path.match(/:([a-zA-Z0-9_]+)/g) || []).map((match) => match.slice(1));
 }
 
+function extractRequestConfig(args: any[]): { headers?: Record<string, string>; params?: Record<string, any>; contentType?: string } | undefined {
+  if (args.length === 0) {
+    return undefined;
+  }
+
+  const lastArg = args[args.length - 1];
+  if (!lastArg || typeof lastArg !== 'object' || Array.isArray(lastArg)) {
+    return undefined;
+  }
+
+  const hasRequestConfig = 'headers' in lastArg || 'params' in lastArg || 'contentType' in lastArg;
+  if (!hasRequestConfig) {
+    return undefined;
+  }
+
+  return {
+    headers: lastArg.headers,
+    params: lastArg.params,
+    contentType: lastArg.contentType,
+  };
+}
+
 async function populateAxiosConfig({
   axiosConfig,
   config,
@@ -42,11 +65,13 @@ async function populateAxiosConfig({
   classRef: new (...args: any[]) => any;
 }): Promise<AxiosRequestConfig> {
 
-  const headers = { ...(axiosConfig.headers || {}) };
-
-  if (config?.headers) {
-    Object.assign(headers, config.headers);
-  }
+  const classHeaders = Reflect.getMetadata(REST_CLIENT_METADATA, classRef)?.headers || {};
+  const classContentType = Reflect.getMetadata(REST_CLIENT_METADATA, classRef)?.contentType || Reflect.getMetadata(REST_CLIENT_CONTENT_TYPE, classRef);
+  const headers = {
+    ...(classHeaders || {}),
+    ...(config?.headers || {}),
+    ...(axiosConfig.headers || {}),
+  };
 
   if (auth) {
     const token = await auth.getToken();
@@ -55,14 +80,15 @@ async function populateAxiosConfig({
     }
     headers['Authorization'] = `Bearer ${token}`;
   }
-  LOGGER.debug(headers);
-  const metaContentType = Reflect.getMetadata(REST_CLIENT_CONTENT_TYPE, classRef);
 
-  if (!metaContentType) {
-    LOGGER.warn('No content type defined for REST client, defaulting to application/json');
-    headers['Content-Type'] = 'application/json';
-  } else {
-    headers['Content-Type'] = metaContentType;
+  const preferredContentType = headers['Content-Type'] || headers['content-type'] || classContentType || ContentTypes.JSON;
+
+  if (!headers['Content-Type'] && !headers['content-type']) {
+    headers['Content-Type'] = preferredContentType;
+  }
+
+  if (!headers['Accept'] && !headers['accept']) {
+    headers['Accept'] = preferredContentType;
   }
 
   return {
@@ -70,7 +96,6 @@ async function populateAxiosConfig({
     headers,
   };
 }
-
 export function createNestRestClient<T extends object>(
   classRef: Type<T>,
   config?: RestClientConfig,
@@ -113,9 +138,20 @@ export function createNestRestClient<T extends object>(
       LOGGER.debug(`Executing REST request: ${axiosConfig.method.toUpperCase()} ${axiosConfig.url}`);
       LOGGER.debug("Axios Config:", axiosConfig);
       const response: AxiosResponse = await axios(axiosConfig);
-      const data = typeof response.data === 'string'
-        ? JSON.parse(response.data)
-        : response.data;
+      const rawData = response.data;
+      const isJsonResponse = typeof rawData === 'string' && (
+        typeof response.headers?.['content-type'] === 'string' && response.headers['content-type'].toLowerCase().includes('application/json') ||
+        ['{', '['].includes(rawData.trim().charAt(0))
+      );
+      const data = typeof rawData === 'string' && isJsonResponse
+        ? (() => {
+            try {
+              return JSON.parse(rawData);
+            } catch {
+              return rawData;
+            }
+          })()
+        : rawData;
       if (returnTypeMetadata) {
         return plainToInstance(returnTypeMetadata.dto, data, returnTypeMetadata.classTransformOptions);
       }
@@ -194,6 +230,8 @@ export function createNestRestClient<T extends object>(
       if (!methodMeta) return undefined;
 
       return async (...args: any[]) => {
+        const requestConfig = extractRequestConfig(args);
+        const methodArgs = requestConfig ? args.slice(0, -1) : args;
         const pathVariables: Record<string, any> = {};
         const placeholders = extractPathPlaceholders(methodMeta.path);
 
@@ -208,37 +246,51 @@ export function createNestRestClient<T extends object>(
 
         if (positional) {
           placeholders.forEach((name, index) => {
-            if (args[index] === undefined) {
+            if (methodArgs[index] === undefined) {
               throw new Error(`Missing path variable: ${name}`);
             }
-            pathVariables[name] = args[index];
+            pathVariables[name] = methodArgs[index];
           });
         } else {
           for (const { name, index } of pathParamMeta) {
-            if (args[index] === undefined) {
+            if (methodArgs[index] === undefined) {
               throw new Error(`Missing path variable: ${name}`);
             }
-            pathVariables[name] = args[index];
+            pathVariables[name] = methodArgs[index];
           }
         }
 
         const payload = positional
-          ? args[placeholders.length]
+          ? methodArgs[placeholders.length]
           : payloadIndex !== undefined
-            ? args[payloadIndex]
+            ? methodArgs[payloadIndex]
             : undefined;
         const url = baseUrl + replacePathVariables(methodMeta.path, pathVariables);
 
         const axiosConfig: AxiosRequestConfig = {
           method: methodMeta.method,
-          url
-        }
+          url,
+        };
 
         for (const { name, index } of queryParamMeta) {
-          if (args[index] === undefined) continue;
+          if (methodArgs[index] === undefined) continue;
           axiosConfig.params = {
             ...(axiosConfig.params || {}),
-            [name]: args[index],
+            [name]: methodArgs[index],
+          };
+        }
+
+        if (requestConfig?.params) {
+          axiosConfig.params = {
+            ...(axiosConfig.params || {}),
+            ...requestConfig.params,
+          };
+        }
+
+        if (requestConfig?.headers) {
+          axiosConfig.headers = {
+            ...(axiosConfig.headers || {}),
+            ...requestConfig.headers,
           };
         }
 
