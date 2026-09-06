@@ -49,7 +49,7 @@ export function ClassTransformOptions(classTransformOptions: ClassTransformOptio
   };
 }
 
-export function ContentType(type: ContentTypes | string): ClassDecorator & MethodDecorator {
+export function ContentType(type: ContentTypes | string): ClassDecorator & MethodDecorator & PropertyDecorator {
   return (target: any, propertyKey?: string | symbol) => {
     if (propertyKey !== undefined && propertyKey !== null) {
       Reflect.defineMetadata(REST_CLIENT_METHOD_CONTENT_TYPE, type, target, propertyKey);

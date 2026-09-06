@@ -8,7 +8,7 @@
  * ```
  */
 export type Endpoint<TArgs extends any[] = [], TResult = any> = (
-  ...args: TArgs
+  ...args: [...TArgs, any?]
 ) => Promise<TResult>;
 
 /**
