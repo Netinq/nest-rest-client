@@ -217,7 +217,17 @@ export class ApiRestClient {}
 
 - `@RestClient` defines the base URL and default config
 - `@ContentType` sets the default content type for the client
+- `@ContentType` can also decorate an endpoint method to override the client default for that request
 - request config can override both at call time
+
+```ts
+@RestClient({ url: 'https://api.example.com' })
+export class ApiRestClient {
+  @Get('/v1/plain')
+  @ContentType(ContentTypes.TEXT_PLAIN)
+  getPlainText!: Endpoint<[], string>;
+}
+```
 
 ## Authentication
 

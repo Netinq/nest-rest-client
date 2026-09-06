@@ -1,6 +1,12 @@
 import 'reflect-metadata';
 import {RestAuth} from './interfaces/auth.interface';
-import {REST_CLIENT_CONTENT_TYPE, REST_CLIENT_METADATA, ReturnMetadata, RETURNS_METADATA} from './decorators/rest';
+import {
+  REST_CLIENT_CONTENT_TYPE,
+  REST_CLIENT_METHOD_CONTENT_TYPE,
+  REST_CLIENT_METADATA,
+  ReturnMetadata,
+  RETURNS_METADATA,
+} from './decorators/rest';
 import {Logger, Type} from '@nestjs/common';
 import axios, {AxiosRequestConfig, AxiosResponse} from 'axios';
 import ContentTypes from './constants/ContentTypes';
@@ -58,11 +64,15 @@ async function populateAxiosConfig({
   config,
   auth,
   classRef,
+  requestContentType,
+  methodContentType,
 }: {
   axiosConfig: AxiosRequestConfig;
   config?: RestClientConfig;
   auth?: RestAuth;
   classRef: new (...args: any[]) => any;
+  requestContentType?: string;
+  methodContentType?: string;
 }): Promise<AxiosRequestConfig> {
 
   const classHeaders = Reflect.getMetadata(REST_CLIENT_METADATA, classRef)?.headers || {};
@@ -81,9 +91,12 @@ async function populateAxiosConfig({
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const preferredContentType = headers['Content-Type'] || headers['content-type'] || classContentType || ContentTypes.JSON;
+  const effectiveRequestContentType = requestContentType || headers['Content-Type'] || headers['content-type'];
+  const preferredContentType = effectiveRequestContentType || methodContentType || classContentType || ContentTypes.JSON;
 
-  if (!headers['Content-Type'] && !headers['content-type']) {
+  if (effectiveRequestContentType) {
+    headers['Content-Type'] = effectiveRequestContentType;
+  } else if (!headers['Content-Type'] && !headers['content-type']) {
     headers['Content-Type'] = preferredContentType;
   }
 
@@ -127,12 +140,16 @@ export function createNestRestClient<T extends object>(
     axiosConfig: any,
     returnTypeMetadata: ReturnMetadata | undefined = undefined,
     retry = true,
+    requestContentType?: string,
+    methodContentType?: string,
   ): Promise<any> {
     axiosConfig = await populateAxiosConfig({
       axiosConfig,
       config,
       auth,
       classRef,
+      requestContentType,
+      methodContentType,
     });
     try {
       LOGGER.debug(`Executing REST request: ${axiosConfig.method.toUpperCase()} ${axiosConfig.url}`);
@@ -161,7 +178,7 @@ export function createNestRestClient<T extends object>(
         if (error.response?.status === 401 && auth?.refreshToken) {
           LOGGER.warn('Unauthorized request, attempting to refresh token');
           await auth.refreshToken();
-          return doRequest(axiosConfig, returnTypeMetadata, false); // retry une seule fois
+          return doRequest(axiosConfig, returnTypeMetadata, false, requestContentType, methodContentType); // retry une seule fois
         }
       }
       LOGGER.error('Error during REST request', error);
@@ -174,6 +191,7 @@ export function createNestRestClient<T extends object>(
     {
       methodMeta: MethodMetadata;
       returnTypeMetadata?: ReturnMetadata;
+      methodContentType?: string;
       pathParamMeta: Array<{ name: string; index: number }>;
       queryParamMeta: Array<{ name: string; index: number }>;
       payloadIndex?: number;
@@ -209,10 +227,16 @@ export function createNestRestClient<T extends object>(
           classRef.prototype,
           prop,
         );
+        const methodContentType: string | undefined = Reflect.getMetadata(
+          REST_CLIENT_METHOD_CONTENT_TYPE,
+          classRef.prototype,
+          prop,
+        );
 
         methodMetadataCache.set(prop, {
           methodMeta,
           returnTypeMetadata,
+          methodContentType,
           pathParamMeta,
           queryParamMeta,
           payloadIndex,
@@ -222,6 +246,7 @@ export function createNestRestClient<T extends object>(
       const {
         methodMeta,
         returnTypeMetadata,
+        methodContentType,
         pathParamMeta,
         queryParamMeta,
         payloadIndex,
@@ -308,7 +333,13 @@ export function createNestRestClient<T extends object>(
           }
         }
 
-        return doRequest(axiosConfig, returnTypeMetadata);
+        return doRequest(
+          axiosConfig,
+          returnTypeMetadata,
+          true,
+          requestConfig?.contentType,
+          methodContentType,
+        );
       }
     }
   });

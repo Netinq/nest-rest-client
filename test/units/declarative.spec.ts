@@ -24,6 +24,10 @@ class ApiRestClient {
 
   @Post('/v1/users')
   createUser!: Endpoint<[body: { name: string }], User>;
+
+  @Post('/v1/raw')
+  @ContentType(ContentTypes.TEXT_PLAIN)
+  createRaw!: Endpoint<[body: string], string>;
 }
 
 describe('endpoints déclarés sans corps de méthode', () => {
@@ -67,6 +71,35 @@ describe('endpoints déclarés sans corps de méthode', () => {
         url: 'https://api.example.com/v1/users',
         method: 'POST',
         data: { name: 'c' },
+      }),
+    );
+  });
+
+  it('applique le content-type défini sur la requête', async () => {
+    axiosMock.mockResolvedValueOnce({ data: 'ok' } as any);
+
+    const client = createNestRestClient(ApiRestClient);
+    await client.createRaw('hello');
+
+    expect(axiosMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://api.example.com/v1/raw',
+        method: 'POST',
+        headers: expect.objectContaining({ 'Content-Type': 'text/plain' }),
+        data: 'hello',
+      }),
+    );
+  });
+
+  it('priorise le content-type fourni dans la config de requête', async () => {
+    axiosMock.mockResolvedValueOnce({ data: { id: 1, name: 'd' } } as any);
+
+    const client = createNestRestClient(ApiRestClient);
+    await client.createUser({ name: 'd' }, { contentType: ContentTypes.TEXT_PLAIN });
+
+    expect(axiosMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'Content-Type': 'text/plain' }),
       }),
     );
   });

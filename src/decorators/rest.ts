@@ -6,6 +6,7 @@ import {EndpointDecorator} from '../types/endpoint';
 export const REST_CLIENT_METADATA = 'REST_CLIENT_METADATA';
 export const RETURNS_METADATA = 'REST_CLIENT:RETURN_TYPE';
 export const REST_CLIENT_CONTENT_TYPE = 'REST_CLIENT:CONTENT_TYPE';
+export const REST_CLIENT_METHOD_CONTENT_TYPE = 'REST_CLIENT:METHOD_CONTENT_TYPE';
 
 const defaultClassTransformOptions: ClassTransformOptions = {
   excludeExtraneousValues: true,
@@ -48,8 +49,13 @@ export function ClassTransformOptions(classTransformOptions: ClassTransformOptio
   };
 }
 
-export function ContentType(type: ContentTypes): ClassDecorator {
-  return (target) => {
+export function ContentType(type: ContentTypes | string): ClassDecorator & MethodDecorator {
+  return (target: any, propertyKey?: string | symbol) => {
+    if (propertyKey !== undefined && propertyKey !== null) {
+      Reflect.defineMetadata(REST_CLIENT_METHOD_CONTENT_TYPE, type, target, propertyKey);
+      return;
+    }
+
     Reflect.defineMetadata(REST_CLIENT_CONTENT_TYPE, type, target);
   };
 }
