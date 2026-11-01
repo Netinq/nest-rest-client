@@ -17,6 +17,21 @@ include:
   - project: sarqdev/catalogue-ci
     file: jobs/npm/.publish.gitlab-ci.yml
 
+npm-publish-npmjs:
+  stage: Publish
+  image: node:26-alpine
+  id_tokens:
+    NPM_ID_TOKEN:
+      aud: "npm:registry.npmjs.org"
+  script:
+    - npm --version
+    - npm publish --registry=https://registry.npmjs.org/ --access=public --ignore-scripts
+  only:
+    - main
+  needs:
+    - job: npm-build
+      artifacts: true
+
 peer-dependency-smoke:
   stage: Test
   image: node:22
