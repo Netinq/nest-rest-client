@@ -1,3 +1,25 @@
+variables:
+  NPM_BUILD_PATH: dist/
+
+stages:
+  - Install
+  - Build
+  - Test
+  - Publish
+
 include:
   - project: sarqdev/catalogue-ci
-    file: .npm-librairies.gitlab-ci.yml
+    file: templates/.root.gitlab-ci.yml
+  - project: sarqdev/catalogue-ci
+    file: jobs/npm/.install-ci.gitlab-ci.yml
+  - project: sarqdev/catalogue-ci
+    file: jobs/npm/.build-v2.0.gitlab-ci.yml
+  - project: sarqdev/catalogue-ci
+    file: jobs/npm/.publish.gitlab-ci.yml
+
+peer-dependency-smoke:
+  stage: Test
+  image: node:22
+  script:
+    - npm ci
+    - npm run test:smoke

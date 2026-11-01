@@ -25,6 +25,7 @@
     "build": "tsc",
     "prepublishOnly": "npm run build",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:smoke": "npm run build && node test/smoke/run.cjs",
     "yalc": "yalc publish"
   },
   "publishConfig": {
@@ -35,7 +36,7 @@
   },
   "peerDependencies": {
     "@nestjs/common": "^11.1.5 || ^12.0.0",
-    "@nestjs/core": "^11.1.5 || ^12.0.0",
+    "@nestjs/core": "^11.1.5 || ^12.0.1",
     "axios": "^1.11.0",
     "class-transformer": "^0.5.1",
     "@nestjs/resilience": "^0.0.3"
