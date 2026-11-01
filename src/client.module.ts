@@ -1,6 +1,8 @@
 import {DynamicModule, Module, Provider, Type} from '@nestjs/common';
 import {RestAuth, RestAuthProvider} from './interfaces/auth.interface';
 import {getAuthProviderToken, RestClientFactory} from './factory/client.factory';
+import type {MethodMetadata} from './decorators/methods';
+import type {RestClientResilienceModuleOptions, RestClientResilienceService} from './decorators/resilience';
 
 export interface RestClientOptions<T = any> {
   client: Type<T>;
@@ -13,12 +15,45 @@ export interface RestClientOptions<T = any> {
 export interface RestClientConfig {
   headers?: Record<string, string>;
   providers?: Record<string, any>;
+  resilience?: RestClientResiliencePolicy | ((context: RestClientResilienceContext) => RestClientResiliencePolicy | undefined);
+  resilienceService?: RestClientResilienceService;
+  resilienceModuleOptions?: RestClientResilienceModuleOptions;
+}
+
+export interface RestClientResiliencePolicy {
+  execute<T>(
+    operation: (context: RestClientResilienceAttempt) => T | PromiseLike<T>,
+    options?: {signal?: AbortSignal; source?: string},
+  ): Promise<T>;
+}
+
+export interface RestClientResilienceAttempt {
+  readonly signal: AbortSignal;
+  readonly attempt: number;
+}
+
+export interface RestRequestConfig {
+  headers?: Record<string, string>;
+  params?: Record<string, any>;
+  contentType?: string;
+  signal?: AbortSignal;
+}
+
+export interface RestClientResilienceContext {
+  clientName: string;
+  methodName: string;
+  httpMethod: MethodMetadata['method'];
+  path: string;
 }
 
 export interface RestClientAsyncOptions {
   imports?: any[];
   useFactory: (...args: any[]) => Promise<RestClientOptions[]> | RestClientOptions[];
   inject?: any[];
+  resilience?: {
+    service: any;
+    options?: RestClientResilienceModuleOptions;
+  };
   globalAuthProvider?: RestAuthProvider;
   authProviderInject?: Provider[];
 }
@@ -47,8 +82,25 @@ export class RestClientModule {
     // Provider des options
     const asyncOptionsProvider: Provider = {
       provide: 'REST_CLIENTS_OPTIONS',
-      useFactory: options.useFactory,
-      inject: options.inject || [],
+      useFactory: async (...args: any[]) => {
+        const clients = await options.useFactory(...args.slice(0, (options.inject || []).length));
+        if (!options.resilience) return clients;
+
+        const resilienceService = args[(options.inject || []).length];
+        const resilienceModuleOptions = options.resilience.options;
+        return clients.map((client) => ({
+          ...client,
+          config: {
+            ...client.config,
+            resilienceService: client.config?.resilienceService ?? resilienceService,
+            resilienceModuleOptions: client.config?.resilienceModuleOptions ?? resilienceModuleOptions,
+          },
+        }));
+      },
+      inject: [
+        ...(options.inject || []),
+        ...(options.resilience ? [options.resilience.service] : []),
+      ],
     };
 
     const providers: Provider[] = [

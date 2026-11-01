@@ -1,121 +1,33 @@
 import 'reflect-metadata';
 import {RestAuth} from './interfaces/auth.interface';
-import {
-  REST_CLIENT_CONTENT_TYPE,
-  REST_CLIENT_METHOD_CONTENT_TYPE,
-  REST_CLIENT_METADATA,
-  ReturnMetadata,
-  RETURNS_METADATA,
-} from './decorators/rest';
+import {REST_CLIENT_METADATA, REST_CLIENT_METHOD_CONTENT_TYPE, ReturnMetadata, RETURNS_METADATA} from './decorators/rest';
 import {Logger, Type} from '@nestjs/common';
 import axios, {AxiosRequestConfig, AxiosResponse} from 'axios';
-import ContentTypes from './constants/ContentTypes';
 import {plainToInstance} from 'class-transformer';
-import {ENDPOINTS_METADATA, METHOD_METADATA, MethodMetadata} from './decorators/methods';
+import {AsyncLocalStorage} from 'node:async_hooks';
+import {METHOD_METADATA, MethodMetadata} from './decorators/methods';
 import {PATH_PARAM_METADATA, PAYLOAD_METADATA, QUERY_PARAM_METADATA} from './decorators/requestContext';
-import {RestClientConfig} from './client.module';
+import type {RestClientConfig, RestClientResiliencePolicy} from './client.module';
+import {extractPathPlaceholders, extractRequestConfig, getAllRestMethods, populateAxiosConfig, replacePathVariables} from './utils/client.helpers';
+import {createResilienceOptions, getResilienceSettings} from './decorators/resilience';
+import type {RestClientFallbackContext} from './decorators/resilience';
 
 export const LOGGER = new Logger('NestRestClient');
 
-function replacePathVariables(path: string, variables: Record<string, any>) {
-  return path.replace(/:([a-zA-Z0-9_]+)/g, (_, key) => {
-    if (variables[key] === undefined) {
-      throw new Error(`Missing path variable: ${key}`);
-    }
-    return encodeURIComponent(String(variables[key]));
-  });
+function getResponseStatus(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null || !('response' in error)) return undefined;
+  const response = error.response;
+  if (typeof response !== 'object' || response === null || !('status' in response)) return undefined;
+  return typeof response.status === 'number' ? response.status : undefined;
 }
 
-function getAllRestMethods(classRef: any): string[] {
-  const endpoints: (string | symbol)[] =
-    Reflect.getMetadata(ENDPOINTS_METADATA, classRef.prototype) ?? [];
-
-  return endpoints.filter((key): key is string => typeof key === 'string');
-}
-
-function extractPathPlaceholders(path: string): string[] {
-  return (path.match(/:([a-zA-Z0-9_]+)/g) || []).map((match) => match.slice(1));
-}
-
-function extractRequestConfig(args: any[]): { headers?: Record<string, string>; params?: Record<string, any>; contentType?: string } | undefined {
-  if (args.length === 0) {
-    return undefined;
-  }
-
-  const lastArg = args[args.length - 1];
-  if (!lastArg || typeof lastArg !== 'object' || Array.isArray(lastArg)) {
-    return undefined;
-  }
-
-  const hasRequestConfig = 'headers' in lastArg || 'params' in lastArg || 'contentType' in lastArg;
-  if (!hasRequestConfig) {
-    return undefined;
-  }
-
-  return {
-    headers: lastArg.headers,
-    params: lastArg.params,
-    contentType: lastArg.contentType,
-  };
-}
-
-async function populateAxiosConfig({
-  axiosConfig,
-  config,
-  auth,
-  classRef,
-  requestContentType,
-  methodContentType,
-}: {
-  axiosConfig: AxiosRequestConfig;
-  config?: RestClientConfig;
-  auth?: RestAuth;
-  classRef: new (...args: any[]) => any;
-  requestContentType?: string;
-  methodContentType?: string;
-}): Promise<AxiosRequestConfig> {
-
-  const classHeaders = Reflect.getMetadata(REST_CLIENT_METADATA, classRef)?.headers || {};
-  const classContentType = Reflect.getMetadata(REST_CLIENT_METADATA, classRef)?.contentType || Reflect.getMetadata(REST_CLIENT_CONTENT_TYPE, classRef);
-  const headers = {
-    ...(classHeaders || {}),
-    ...(config?.headers || {}),
-    ...(axiosConfig.headers || {}),
-  };
-
-  if (auth) {
-    const token = await auth.getToken();
-    if (!token) {
-      throw new Error('No token provided by auth service');
-    }
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const effectiveRequestContentType = requestContentType || headers['Content-Type'] || headers['content-type'];
-  const preferredContentType = effectiveRequestContentType || methodContentType || classContentType || ContentTypes.JSON;
-
-  if (effectiveRequestContentType) {
-    headers['Content-Type'] = effectiveRequestContentType;
-  } else if (!headers['Content-Type'] && !headers['content-type']) {
-    headers['Content-Type'] = preferredContentType;
-  }
-
-  if (!headers['Accept'] && !headers['accept']) {
-    headers['Accept'] = preferredContentType;
-  }
-
-  return {
-    ...axiosConfig,
-    headers,
-  };
-}
 export function createNestRestClient<T extends object>(
   classRef: Type<T>,
   config?: RestClientConfig,
   auth?: RestAuth,
 ): T {
 
-  LOGGER.debug('Creating nest client', auth);
+  LOGGER.debug(`Creating nest client ${classRef.name}`);
 
   const meta = Reflect.getMetadata(REST_CLIENT_METADATA, classRef);
 
@@ -124,6 +36,8 @@ export function createNestRestClient<T extends object>(
   }
 
   const baseUrl = typeof meta.url === 'function' ? meta.url() : meta.url;
+  const resiliencePolicyCache = new Map<string, RestClientResiliencePolicy>();
+  const fallbackContextStorage = new AsyncLocalStorage<Omit<RestClientFallbackContext, 'signal' | 'attempt'>>();
 
   LOGGER.log(`Creating REST client for ${classRef.name} (${baseUrl})`);
   const methodNames = getAllRestMethods(classRef);
@@ -137,53 +51,121 @@ export function createNestRestClient<T extends object>(
   }
 
   async function doRequest(
-    axiosConfig: any,
+    axiosConfig: AxiosRequestConfig,
     returnTypeMetadata: ReturnMetadata | undefined = undefined,
-    retry = true,
     requestContentType?: string,
     methodContentType?: string,
+    resiliencePolicy?: RestClientResiliencePolicy,
+    requestSignal?: AbortSignal,
+    source?: string,
+    resilienceArgs: readonly unknown[] = [],
+    methodName = '',
+    httpMethod = 'GET',
+    path = '',
   ): Promise<any> {
-    axiosConfig = await populateAxiosConfig({
-      axiosConfig,
-      config,
-      auth,
-      classRef,
-      requestContentType,
-      methodContentType,
-    });
-    try {
-      LOGGER.debug(`Executing REST request: ${axiosConfig.method.toUpperCase()} ${axiosConfig.url}`);
-      LOGGER.debug("Axios Config:", axiosConfig);
-      const response: AxiosResponse = await axios(axiosConfig);
+    const executeRequest = async (signal?: AbortSignal): Promise<any> => {
+      let populatedConfig = await populateAxiosConfig({
+        axiosConfig,
+        config,
+        auth,
+        classRef,
+        requestContentType,
+        methodContentType,
+      });
+      if (signal) populatedConfig = {...populatedConfig, signal};
+
+      LOGGER.debug(`Executing REST request: ${populatedConfig.method?.toUpperCase()} ${populatedConfig.url}`);
+
+      let response: AxiosResponse;
+      try {
+        response = await axios(populatedConfig);
+      } catch (error) {
+        if (getResponseStatus(error) !== 401 || !auth?.refreshToken) {
+          const message = error instanceof Error ? error.message : String(error);
+          LOGGER.error(`Error during REST request: ${message}`);
+          throw error;
+        }
+
+        LOGGER.warn('Unauthorized request, attempting to refresh token');
+        await auth.refreshToken();
+        populatedConfig = await populateAxiosConfig({
+          axiosConfig,
+          config,
+          auth,
+          classRef,
+          requestContentType,
+          methodContentType,
+        });
+        if (signal) populatedConfig = {...populatedConfig, signal};
+        response = await axios(populatedConfig);
+      }
+
       const rawData = response.data;
       const isJsonResponse = typeof rawData === 'string' && (
-        typeof response.headers?.['content-type'] === 'string' && response.headers['content-type'].toLowerCase().includes('application/json') ||
+        (typeof response.headers?.['content-type'] === 'string' && response.headers['content-type'].toLowerCase().includes('application/json')) ||
         ['{', '['].includes(rawData.trim().charAt(0))
       );
       const data = typeof rawData === 'string' && isJsonResponse
         ? (() => {
-            try {
-              return JSON.parse(rawData);
-            } catch {
-              return rawData;
-            }
-          })()
+          try {
+            return JSON.parse(rawData);
+          } catch {
+            return rawData;
+          }
+        })()
         : rawData;
+
       if (returnTypeMetadata) {
         return plainToInstance(returnTypeMetadata.dto, data, returnTypeMetadata.classTransformOptions);
       }
       return data;
-    } catch (error: any) {
-      if (retry) {
-        if (error.response?.status === 401 && auth?.refreshToken) {
-          LOGGER.warn('Unauthorized request, attempting to refresh token');
-          await auth.refreshToken();
-          return doRequest(axiosConfig, returnTypeMetadata, false, requestContentType, methodContentType); // retry une seule fois
-        }
+    };
+
+    const decoratorSettings = getResilienceSettings(classRef, methodName);
+    if (decoratorSettings) {
+      if (!config?.resilienceService) {
+        throw new Error(`Resilience decorators on ${classRef.name}.${methodName} require RestClientModule.forRootAsync({ resilience: { service: ResilienceService } }).`);
       }
-      LOGGER.error('Error during REST request', error);
-      throw error;
+      resiliencePolicy = resiliencePolicyCache.get(methodName);
+      if (!resiliencePolicy) {
+        const options = createResilienceOptions(
+          decoratorSettings,
+          methodName,
+          httpMethod,
+          path,
+          classRef.name,
+          clientProxy,
+          (attempt) => {
+            const context = fallbackContextStorage.getStore();
+            if (!context) {
+              throw new Error(`Fallback for ${classRef.name}.${methodName} ran outside its REST request context.`);
+            }
+            return {...context, signal: attempt.signal, attempt: attempt.attempt};
+          },
+          config.resilienceModuleOptions,
+        );
+        resiliencePolicy = config.resilienceService.create(options, source);
+        resiliencePolicyCache.set(methodName, resiliencePolicy);
+      }
     }
+
+    if (resiliencePolicy) {
+      const execute = () => resiliencePolicy!.execute(({signal}) => executeRequest(signal), {
+        source,
+        signal: requestSignal,
+      });
+      return decoratorSettings
+        ? fallbackContextStorage.run({
+          clientName: classRef.name,
+          methodName,
+          httpMethod,
+          path,
+          args: resilienceArgs,
+        }, execute)
+        : execute();
+    }
+
+    return executeRequest(requestSignal);
   }
 
   const methodMetadataCache = new Map<
@@ -198,7 +180,8 @@ export function createNestRestClient<T extends object>(
     }
   >();
 
-  return new Proxy({} as T, {
+  let clientProxy: T;
+  clientProxy = new Proxy({} as T, {
     get(_, prop: string | symbol) {
       if (typeof prop !== 'string') return undefined;
 
@@ -208,7 +191,10 @@ export function createNestRestClient<T extends object>(
           classRef.prototype,
           prop,
         );
-        if (!methodMeta) return undefined;
+        if (!methodMeta) {
+          const implementation = classRef.prototype[prop];
+          return typeof implementation === 'function' ? implementation.bind(clientProxy) : undefined;
+        }
 
         const returnTypeMetadata: ReturnMetadata | undefined = Reflect.getMetadata(
           RETURNS_METADATA,
@@ -232,7 +218,6 @@ export function createNestRestClient<T extends object>(
           classRef.prototype,
           prop,
         );
-
         methodMetadataCache.set(prop, {
           methodMeta,
           returnTypeMetadata,
@@ -270,7 +255,7 @@ export function createNestRestClient<T extends object>(
           payloadIndex === undefined;
 
         if (positional) {
-          placeholders.forEach((name, index) => {
+          placeholders.forEach((name: string, index: number) => {
             if (methodArgs[index] === undefined) {
               throw new Error(`Missing path variable: ${name}`);
             }
@@ -295,6 +280,7 @@ export function createNestRestClient<T extends object>(
         const axiosConfig: AxiosRequestConfig = {
           method: methodMeta.method,
           url,
+          signal: requestConfig?.signal,
         };
 
         for (const { name, index } of queryParamMeta) {
@@ -333,15 +319,32 @@ export function createNestRestClient<T extends object>(
           }
         }
 
+        const resiliencePolicy = typeof config?.resilience === 'function'
+          ? config.resilience({
+            clientName: classRef.name,
+            methodName: prop,
+            httpMethod: methodMeta.method,
+            path: methodMeta.path,
+          })
+          : config?.resilience;
+
         return doRequest(
           axiosConfig,
           returnTypeMetadata,
-          true,
           requestConfig?.contentType,
           methodContentType,
+          resiliencePolicy,
+          requestConfig?.signal,
+          `${classRef.name}.${prop}`,
+          methodArgs,
+          prop,
+          methodMeta.method,
+          methodMeta.path,
         );
       }
     }
   });
+
+  return clientProxy;
 
 }

@@ -4,6 +4,7 @@ export * from './client';
 export * from './client.module';
 export * from './decorators/methods';
 export * from './decorators/requestContext';
+export * from './decorators/resilience';
 export * from './factory/client.factory';
 export * from './interfaces/auth.interface';
 export * from './types/endpoint';

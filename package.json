@@ -4,6 +4,15 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "description": "A Nest module to create insane REST Client.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.com/sarqdev/librairies/nest-rest-client.git"
+  },
+  "homepage": "https://gitlab.com/sarqdev/librairies/nest-rest-client#readme",
+  "bugs": {
+    "url": "https://gitlab.com/sarqdev/librairies/nest-rest-client/-/issues"
+  },
   "author": {
     "name": "Quentin SAR"
   },
@@ -15,7 +24,7 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
-    "test": "jest",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "yalc": "yalc publish"
   },
   "publishConfig": {
@@ -28,7 +37,13 @@
     "@nestjs/common": "^11.1.5 || ^12.0.0",
     "@nestjs/core": "^11.1.5 || ^12.0.0",
     "axios": "^1.11.0",
-    "class-transformer": "^0.5.1"
+    "class-transformer": "^0.5.1",
+    "@nestjs/resilience": "^0.0.3"
+  },
+  "peerDependenciesMeta": {
+    "@nestjs/resilience": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
@@ -36,5 +51,28 @@
     "jest": "^30.5.1",
     "ts-jest": "^29.4.12",
     "typescript": "^5.2.2"
+  },
+  "keywords": [
+    "nestjs",
+    "nest",
+    "rest",
+    "http",
+    "rest-client",
+    "http-client",
+    "typescript",
+    "api-client"
+  ],
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   }
 }
