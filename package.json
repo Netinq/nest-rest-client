@@ -7,11 +7,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://gitlab.com/sarqdev/librairies/nest-rest-client.git"
+    "url": "https://github.com/Netinq/nest-rest-client.git"
   },
-  "homepage": "https://gitlab.com/sarqdev/librairies/nest-rest-client#readme",
+  "homepage": "https://github.com/Netinq/nest-rest-client#readme",
   "bugs": {
-    "url": "https://gitlab.com/sarqdev/librairies/nest-rest-client/-/issues"
+    "url": "https://github.com/Netinq/nest-rest-client/issues"
   },
   "author": {
     "name": "Quentin SAR"
